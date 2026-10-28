@@ -1,0 +1,55 @@
+#!/usr/bin/env riscos-amu -f
+# Makefile for LCDDisplay
+#
+# Built with the RISC OS build environment (riscos-amu), using the shared CModule makefile.
+#
+
+#
+# Program specific options:
+#
+COMPONENT  = LCDDisplay
+
+# Specifies additional targets for startup
+INITTARGET = inittarget
+
+# Specifies additional targets for clean
+CLEANTARGET = cleantarget
+
+# Comma-separated list of paths to use for includes, such as:
+#	C:LibName.
+INCLUDES   =
+
+# Space separated list of libraries to link against, eg C:LibName.o.libLibName
+# (${CLIB} is implicit, unless NOCLIB = yes)
+LIBS       =
+
+# Space separated list of defines to set, eg -DDEBUG
+CDEFINES   =
+
+# Objects to build, using the format o.<name> (will be varied for build type)
+OBJS       = o.modhead \
+             o.module \
+             o.lcd \
+             o.command \
+             o.fade
+
+# By default we don't build Fortify in.
+FORTIFY    = no
+
+include CModule
+
+# Additional dependencies
+$(OZDIR).module: h.modhead
+$(OZDIR).lcd: h.modhead
+$(OZDIR).command: h.modhead
+$(OZDIR).fade: h.modhead
+
+cleantarget:
+           ${DESTROY} h.modhead
+# This clean target removes any module header file that was built.
+inittarget:
+           ${MKDIR} h
+# This init target ensures that the header directory is created
+
+#---------------------------------------------------------------------------
+# Dynamic dependencies:

@@ -15,14 +15,22 @@
 
 #include "kernel.h"
 #include "swis.h"
+
+#ifdef ROOL_SOURCE
 #include "Global/OSMisc.h"
+#else
+/* OS_MMUControl 2 (get an ARMop) and the barrier ARMops, as in the kernel's hdr/OSMisc */
+#define MMUCReason_GetARMop 2
+#define ARMop_DMB_Write     19
+#define ARMop_DMB_Read      20
+#endif
 
 #include "SPIDefs.h"
 #include "lcddisplay.h"
 #include "lcd.h"
 #include "fade.h"
 
-#include "LCDDisplayHdr.h"
+#include "modhead.h"
 
 void (*barrier_W)(void);
 void (*barrier_R)(void);
@@ -84,6 +92,9 @@ static _kernel_oserror *map_registers(void)
 
 _kernel_oserror *hw_init(void)
 {
+    int output_pins[2];
+    int i;
+
     // GPFSEL0: GPIO 7, 8, 9 -> ALT0 (SPI0)
     gpio_base[GPIO_GPFSEL0_REG/4] =
         (gpio_base[GPIO_GPFSEL0_REG/4]
@@ -97,8 +108,8 @@ _kernel_oserror *hw_init(void)
             & ~((7 << 0) | (7 << 3) | (7 << 24)))
             |   (4 << 0) | (4 << 3) | (2 << 24);
 
-    int output_pins[] = {PIN_DC, PIN_RST};
-    int i;
+    output_pins[0] = PIN_DC;
+    output_pins[1] = PIN_RST;
 
     for (i = 0; i < sizeof(output_pins) / sizeof(int); ++i) {
       int pin = output_pins[i];

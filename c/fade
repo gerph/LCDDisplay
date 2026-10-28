@@ -15,7 +15,7 @@
 #include "lcddisplay.h"
 #include "lcd.h"
 #include "fade.h"
-#include "LCDDisplayHdr.h"
+#include "modhead.h"
 
 /* TickerV vector number (called every centisecond from the ticker
  * interrupt chain). */

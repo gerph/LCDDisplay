@@ -15,10 +15,12 @@
 #include "SPIDefs.h"
 #include "lcddisplay.h"
 #include "lcd.h"
-#include "LCDDisplayHdr.h"
+#include "modhead.h"
 
-#include "Global/OSMem.h"
-#include "DebugLib/DebugLib.h"
+
+/* SWIs of the PCI module, for memory which a bus master may use (not in swis.h) */
+#define PCI_RAMAlloc 0x50390
+#define PCI_RAMFree  0x50391
 
 #define SPI_DMA_THRESHOLDS ((0x20 << 24) | (0x10 << 16) | (0x10 << 8) | 0x20)
 
@@ -262,6 +264,8 @@ static _kernel_oserror *dma_run_chunk(const dma_transfer_chunk_t *chunk)
     volatile unsigned int *spi = (volatile unsigned int *) spi_base;
     volatile unsigned int *tx_regs = dma_channel_regs(DMA_TX_CHANNEL);
     volatile unsigned int *rx_regs = dma_channel_regs(DMA_RX_CHANNEL);
+    bool timed_out;
+    unsigned timeout;
 
     spi[SPI_CS_REG   / 4] &= ~SPI_CS_TA;
     spi[SPI_CS_REG   / 4] |= SPI_CS_CLEAR_TX | SPI_CS_CLEAR_RX | SPI_CS_DMAEN;
@@ -289,8 +293,8 @@ static _kernel_oserror *dma_run_chunk(const dma_transfer_chunk_t *chunk)
     tx_regs[DMA_REG_CS /4] |= DMA_CS_ACTIVE;
     rx_regs[DMA_REG_CS /4] |= DMA_CS_ACTIVE;
 
-    bool timed_out = false;
-    unsigned timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + 25;
+    timed_out = false;
+    timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + 25;
 
     while ((tx_regs[DMA_REG_CS /4] & DMA_CS_END) == 0
            || (rx_regs[DMA_REG_CS /4] & DMA_CS_END) == 0
@@ -325,6 +329,7 @@ static _kernel_oserror *dma_run_frame_transfer(dma_buffer_t *buffer)
 
     dma_transfer_chunk_t chunks[DMA_SPI_MAX_CHUNKS];
     unsigned chunk_count = 0;
+    int chunk_index;
 
     e = dma_build_chunks(buffer, chunks, &chunk_count);
     if (e != NULL)
@@ -332,7 +337,6 @@ static _kernel_oserror *dma_run_frame_transfer(dma_buffer_t *buffer)
 
     barrier_W();
 
-    int chunk_index;
     for (chunk_index = 0; e == NULL && chunk_index < chunk_count;
          chunk_index++) {
         // printf("Chunk %d of %d\n", chunk_index+1, chunk_count);
@@ -384,6 +388,9 @@ static const lcd_init_cmd_t lcd_init_table[] = {
 
 void lcd_command(int cmd, const int *start, const int *end)
 {
+    unsigned int timeout;
+    const int *param;
+
     gpio_base[GPIO_GPCLR0_REG/4] = (1 << PIN_DC); // Set DC low
     barrier_W();
 
@@ -391,7 +398,7 @@ void lcd_command(int cmd, const int *start, const int *end)
     spi_base[SPI_CS_REG  /4] |= (SPI_CS_CLEAR_TX | SPI_CS_CLEAR_RX | SPI_CS_TA);
     spi_base[SPI_FIFO_REG/4]  = cmd;
 
-    unsigned int timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + 25;
+    timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + 25;
 
     while ((spi_base[SPI_CS_REG/4] & SPI_CS_DONE) == 0) {
         if (_swi(OS_ReadMonotonicTime, _RETURN(0)) > timeout) {
@@ -411,7 +418,7 @@ void lcd_command(int cmd, const int *start, const int *end)
   barrier_W();
 
   // Send the params. We can assume they will all fit in the FIFO.
-  const int *param = start;
+  param = start;
   while (param < end) {
     spi_base[SPI_FIFO_REG/4] = *param++;
   }
@@ -504,6 +511,7 @@ _kernel_oserror *lcd_show_sprite(void *sprite_ptr)
 {
     _kernel_oserror *e;
     dma_buffer_t buffer;
+    _kernel_oserror *e2;
 
     e  = create_buffer(&buffer);
     if (e) return e;
@@ -527,7 +535,7 @@ _kernel_oserror *lcd_show_sprite(void *sprite_ptr)
 
     e = dma_run_frame_transfer(&buffer);
 
-    _kernel_oserror *e2 = remove_buffer(&buffer);
+    e2 = remove_buffer(&buffer);
 
     return e ? e : e2;
 }

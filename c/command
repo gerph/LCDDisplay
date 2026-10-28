@@ -16,7 +16,7 @@
 #include "lcddisplay.h"
 #include "lcd.h"
 #include "fade.h"
-#include "LCDDisplayHdr.h"
+#include "modhead.h"
 
 /* OS_SpriteOp reason codes used here (see PRM 5a-90ff):
  *   9   ReadSpriteInfo   - width/height (pixels), mask flag, mode word
@@ -40,12 +40,15 @@ static _kernel_oserror *lcddisplay_load(const char *arg_string, int argc)
 {
     _kernel_oserror *e;
     _kernel_swi_regs r;
+    const char *filename = arg_string;
+    unsigned length, type;
+    unsigned *sprite_area;
+    int width, height, mode;
+    void *sprite_ptr;
 
     if (argc < 1 || arg_string == NULL || arg_string[0] == '\0')
         return lcddisplay_make_error("Syntax: *LCDDisplayLoad <sprite file>");
 
-    const char *filename = arg_string;
-    unsigned length, type;
     e = _swix(OS_File, _INR(0,1)|_OUT(4)|_OUT(6), 23, filename, &length, &type);
     if (e) return e;
 
@@ -55,7 +58,7 @@ static _kernel_oserror *lcddisplay_load(const char *arg_string, int argc)
     if (type != 0xff9)
       return lcddisplay_make_error("Not a Sprite file.");
 
-    unsigned *sprite_area = malloc(length+4);
+    sprite_area = malloc(length+4);
     sprite_area[0] = length+4;
     sprite_area[1] = 0;
     sprite_area[2] = 16;
@@ -87,7 +90,6 @@ static _kernel_oserror *lcddisplay_load(const char *arg_string, int argc)
         return e;
     }
 
-    int width, height, mode;
     width  = r.r[3];
     height = r.r[4];
     mode   = r.r[6];
@@ -99,7 +101,7 @@ static _kernel_oserror *lcddisplay_load(const char *arg_string, int argc)
     }
 
     /* offset to first sprite is area word 2  */
-    void *sprite_ptr = (char *) sprite_area + sprite_area[2];
+    sprite_ptr = (char *) sprite_area + sprite_area[2];
 
     e = lcd_show_sprite(sprite_ptr);
     if (e != NULL)
