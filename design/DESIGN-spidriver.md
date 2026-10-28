@@ -29,6 +29,15 @@ All from the user, in the conversation which started this design.
 - **The SPIDriverBCM2835 driver is left until later.** The module is first tested in
   Pyromaniac with an internal SPI driver and an emulated display. Anything found which the
   BCM2835 driver needs is filed in the SPIDriver design (see the last section).
+- **The SPI side of the test is a fake bus in SPIDriver2** (answer to LQ1): the fake bus
+  driver and the ILI9341 model are Python in the SPIDriver2 repository, first writing the
+  frame to a file so tests can compare it. The GTK/wxWidgets viewer is Pyromaniac work, done
+  after, once the model works. The fake bus is designed in SPIDriver2 (`design/`), since it is
+  the first of its kind and other clients will use it.
+- **Reset and backlight go through the GPIO and PWM modules** (answer to LQ2), so the
+  module can run in Pyromaniac. They therefore need configuration: see LQ4.
+- **The channel is chosen with a module command** for now (answer to LQ3), not a system
+  variable or an automatic choice.
 - **Polled transfers first.** DMA and the `Background` flag are not used.
 
 Presented as proposals and not challenged (so taken as decisions):
@@ -59,19 +68,20 @@ Presented as proposals and not challenged (so taken as decisions):
 
 ## Open Questions
 
-(Asked in the conversation; recorded here so that it can resume from this file.)
-
-- **LQ1. Where do the pieces live?** The fake bus driver (a registry of device models), the
-  ILI9341 model and the viewer. Proposal: the fake bus driver and the ILI9341 model are
-  PyModules/Python in the SPIDriver2 repository, first writing the frame to a file so that tests can
-  compare it; the viewer in the GTK/wxWidgets window is Pyromaniac work, done after, once
-  the model works. This is the "fake devices" idea (below, moved here).
-- **LQ2. Reset and backlight under `ROOL_SPIDRIVER`.** Should they go through the GPIO and
-  PWM device services too (so the whole module can run in Pyromaniac), or stay as register
-  code (so only the SPI part is tested there)?
-- **LQ3. How does LCDDisplay find its channel?** By name (a system variable), by the
-  first channel found, or from a module command? Depends on the wiring decision in the
-  BCM2835 driver (open there).
+- **LQ4. How are the reset, backlight and (later) other ports configured?** Under
+  `ROOL_SPIDRIVER` they go through the GPIO and PWM services, so the module needs to be told
+  which GPIO port and pin is the reset, and which PWM device and output is the backlight (a
+  non-BCM2835 board wires them differently). Proposal: module commands, as for the channel
+  (LQ3's answer), each with a default of the Raspberry Pi wiring (reset GPIO 27, backlight
+  PWM on GPIO 18): `*LCDDisplayChannel <name>`, `*LCDDisplayReset <port> <pin>`,
+  `*LCDDisplayBacklight <device> <output>`. Is a module command the right form for all
+  three, or should the pins also be readable from system variables so a boot sequence can
+  set them without the module loaded?
+- **LQ5. What is the GPIO and PWM service API to target?** Pyromaniac has the old GPIO module
+  (SWI chunk `&58F80`, `GPIO_ReadData`, `GPIO_WriteMode` and so on, whose interface depends on
+  the hardware) and a `PWMDevices` module (`Enumerate`, `Claim`, `Output...`, `Commit`). The
+  real RISC OS the module runs on needs the same calls to exist. Which does the author
+  expect (investigation LI4 will establish what each offers)?
 
 ## Findings for the BCM2835 driver
 
