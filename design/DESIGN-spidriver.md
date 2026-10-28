@@ -38,6 +38,15 @@ All from the user, in the conversation which started this design.
   module can run in Pyromaniac. They therefore need configuration: see LQ4.
 - **The channel is chosen with a module command** for now (answer to LQ3), not a system
   variable or an automatic choice.
+- **The pins are configured by module commands** (answer to LQ4), with the Raspberry Pi
+  wiring as defaults (reset GPIO 27, backlight GPIO 18): `*LCDDisplayChannel <name>`,
+  `*LCDDisplayReset <pin>` and `*LCDDisplayBacklight ...`, and are also readable from
+  system variables so a boot sequence can set them without the module loaded. (The exact
+  commands are for the plan.)
+- **Reset goes through the GPIO module** (the old per-pin interface, which the author
+  regards as well defined and widely used). **The backlight PWM does not move to
+  `PWMDevices` yet** (answer to LQ5): it will be controlled differently, so for now a define
+  disables the PWM code (LQ6).
 - **Polled transfers first.** DMA and the `Background` flag are not used.
 
 Presented as proposals and not challenged (so taken as decisions):
@@ -60,28 +69,26 @@ Presented as proposals and not challenged (so taken as decisions):
 - **LI3 (open, during design). What Pyromaniac offers for showing a colour image from a
   device model**, and whether a PyModule can add a viewer without changing Pyromaniac's own
   GUI classes. Evidence: the `DeviceControls` and `wxwidgets`/`gtk` code.
-- **LI4 (open, during design). What LCDDisplay needs besides SPI.** It maps the GPIO, PWM
-  and clock-manager registers directly (reset on GPIO 27, backlight PWM on GPIO 18, pin
-  function selection). Under Pyromaniac those registers do not exist, so the module's
-  `map_registers` and `hw_init` cannot run there. Evidence: a read of `c/module` and
-  Pyromaniac's `gpio.py` and `pwmdevices.py`.
+- **LI4 (done). What LCDDisplay needs besides SPI, and what the services offer.** The module
+  touches the hardware directly in these places: the SPI0 registers and DMA (`c/lcd`, the part
+  replaced by SPIDriver); the GPIO function-select registers for pins 7 to 11 (SPI) and 18
+  (PWM), and the direction of the data/command pin 25 and the reset pin 27 (`hw_init` in
+  `c/module`); the data/command pin (`lcd_command`), the chip select 8 and the reset 27
+  (`lcd_reset`) in `c/lcd`; and the backlight PWM and its clock manager (`hw_init`, `module_final`
+  in `c/module`, `lcd_set_backlight`, `lcd_backlight_start` and `lcd_backlight_stop` in `c/lcd`).
+  The GPIO module (SWI chunk `&58F80`) provides per-pin calls: `GPIO_ReadData` (R0 = pin, returns
+  the level or -1), `GPIO_WriteData` (R0 = pin, R1 = level), `GPIO_WriteOE` (R0 = pin, R1 = 0 for
+  output) and `GPIO_WriteMode`, which is enough for the reset line. `PWMDevices` is new and its
+  use for the backlight is not decided (LQ5).
 
 ## Open Questions
 
-- **LQ4. How are the reset, backlight and (later) other ports configured?** Under
-  `ROOL_SPIDRIVER` they go through the GPIO and PWM services, so the module needs to be told
-  which GPIO port and pin is the reset, and which PWM device and output is the backlight (a
-  non-BCM2835 board wires them differently). Proposal: module commands, as for the channel
-  (LQ3's answer), each with a default of the Raspberry Pi wiring (reset GPIO 27, backlight
-  PWM on GPIO 18): `*LCDDisplayChannel <name>`, `*LCDDisplayReset <port> <pin>`,
-  `*LCDDisplayBacklight <device> <output>`. Is a module command the right form for all
-  three, or should the pins also be readable from system variables so a boot sequence can
-  set them without the module loaded?
-- **LQ5. What is the GPIO and PWM service API to target?** Pyromaniac has the old GPIO module
-  (SWI chunk `&58F80`, `GPIO_ReadData`, `GPIO_WriteMode` and so on, whose interface depends on
-  the hardware) and a `PWMDevices` module (`Enumerate`, `Claim`, `Output...`, `Commit`). The
-  real RISC OS the module runs on needs the same calls to exist. Which does the author
-  expect (investigation LI4 will establish what each offers)?
+- **LQ6. What is the name of the define which disables the backlight PWM?** Proposal:
+  `LCDDISPLAY_NO_PWM`, set in the makefile for a build which has no way to control the
+  backlight. With it, `lcd_set_backlight` keeps the brightness (so `*LCDDisplayBrightness`,
+  fade and the state all work) but touches no hardware, and `hw_init`/`module_final` skip the
+  PWM and clock setup. `ROOL_SPIDRIVER` alone would not imply it, so a Raspberry Pi build can
+  use SPIDriver and the register-level PWM together until `PWMDevices` is used.
 
 ## Findings for the BCM2835 driver
 
