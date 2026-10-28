@@ -29,10 +29,10 @@ All from the user, in the conversation which started this design.
 - **The SPIDriverBCM2835 driver is left until later.** The module is first tested in
   Pyromaniac with an internal SPI driver and an emulated display. Anything found which the
   BCM2835 driver needs is filed in the SPIDriver design (see the last section).
-- **The SPI side of the test is a fake bus in SPIDriver2** (answer to LQ1): the fake bus
+- **The SPI side of the test is an emulated bus in SPIDriver2** (answer to LQ1): the emulated bus
   driver and the ILI9341 model are Python in the SPIDriver2 repository, first writing the
   frame to a file so tests can compare it. The GTK/wxWidgets viewer is Pyromaniac work, done
-  after, once the model works. The fake bus is designed in SPIDriver2 (`design/`), since it is
+  after, once the model works. The emulated bus is designed in SPIDriver2 (`design/`), since it is
   the first of its kind and other clients will use it.
 - **Reset and backlight go through the GPIO and PWM modules** (answer to LQ2), so the
   module can run in Pyromaniac. They therefore need configuration: see LQ4.
@@ -88,15 +88,9 @@ Presented as proposals and not challenged (so taken as decisions):
 (None yet. Each thing learned here that the BCM2835 driver will need goes here and into
 SPIDriver2's `design/DESIGN-bcm2835-driver.md` when it is settled.)
 
-## Fake devices on a fake SPI bus
+## Emulated devices on an emulated SPI bus
 
-This is the open idea of the same name in SPIDriver2's `design/IDEAS.md`, which it would
-answer. A driver registers a bus whose channels each have a Python
-device model attached, as the Pyromaniac IIC module's internal devices do: the models are
-named, and attached to a channel in the configuration by their device name and options. It
-lets clients be tested against fake sensors, flash chips and displays with no hardware. The
-LCDDisplay case is a fake display which receives commands and frames and is inspected or
-screenshotted. Not yet designed: the model interface (bytes exchanged per transfer, with the
-auxiliary line level so a display model can tell command from data, and the chip-select state
-for `KeepCS` transactions), how channels are configured, and whether it replaces
-`SPIDriverLoopback` or is built from it.
+Designed in SPIDriver2 (`design/DESIGN-emulated-devices.md`), since it is the first emulated
+bus and other clients will use it. For this module it provides the SPI channel with an
+emulated ILI9341 display, which receives the commands and frames and writes the picture to a
+file.
