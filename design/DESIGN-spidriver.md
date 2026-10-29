@@ -97,6 +97,15 @@ Presented as proposals and not challenged (so taken as decisions):
   PWM and clock setup. `ROOL_SPIDRIVER` alone would not imply it, so a Raspberry Pi build can
   use SPIDriver and the register-level PWM together until `PWMDevices` is used.
 
+## Status
+
+Built (branch `spidriver`): with `-DROOL_SPIDRIVER` the module uses SPIDriver for the panel and
+the GPIO module for its reset, and `-DLCDDISPLAY_NO_PWM` leaves the backlight without hardware.
+`testcode/run-tests` builds that variant and runs 11 tests in RISC OS Pyromaniac against an emulated
+ST7789 panel. Not done: the backlight through `PWMDevices` (LQ5), a pin configuration for the
+backlight (the define disables it), a 64-bit build, the original build's behaviour on hardware (the
+original code paths are untouched, and still build), any run on a real Raspberry Pi.
+
 ## Findings for the BCM2835 driver
 
 (None yet. Each thing learned here that the BCM2835 driver will need goes here and into
