@@ -26,6 +26,16 @@ Turns the panel backlight on (starts the backlight PWM)."),
                 help-text: "*LCDDisplayBrightness <brightness>\n\
 Sets the panel backlight brightness (0-100%), cancelling any fade\n\
 in progress."),
+    LCDDisplayChannel(min-args: 1, max-args: 1,
+                invalid-syntax: "Syntax: *LCDDisplayChannel <name>",
+                help-text: "*LCDDisplayChannel <name>\n\
+Chooses the SPI channel (as listed by *SPIDevices) that the panel is on,\n\
+when the module is built to use SPIDriver."),
+    LCDDisplayReset(min-args: 1, max-args: 1,
+                invalid-syntax: "Syntax: *LCDDisplayReset <pin>",
+                help-text: "*LCDDisplayReset <pin>\n\
+Sets the GPIO pin that resets the panel, when the module is built to use\n\
+SPIDriver. The default is the Raspberry Pi wiring, pin 27."),
     LCDDisplayFade(min-args: 1, max-args: 1,
                 invalid-syntax: "Syntax: *LCDDisplayFade <brightness>",
                 help-text: "*LCDDisplayFade <brightness>\n\

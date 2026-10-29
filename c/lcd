@@ -17,12 +17,19 @@
 #include "lcd.h"
 #include "modhead.h"
 
+#ifdef ROOL_SPIDRIVER
+#include <stdlib.h>
+#include "spiclient.h"
+#endif
 
+
+#ifndef ROOL_SPIDRIVER
 /* SWIs of the PCI module, for memory which a bus master may use (not in swis.h) */
 #define PCI_RAMAlloc 0x50390
 #define PCI_RAMFree  0x50391
 
 #define SPI_DMA_THRESHOLDS ((0x20 << 24) | (0x10 << 16) | (0x10 << 8) | 0x20)
+#endif
 
 #define MADCTL_MY  0x80
 #define MADCTL_MV  0x20
@@ -30,6 +37,10 @@
 
 #define COLMOD_65K_RGB 0x50
 #define COLMOD_16BPP   0x05
+
+#ifndef ROOL_SPIDRIVER
+/* The SPI controller is used directly, with DMA. With ROOL_SPIDRIVER the module uses SPIDriver
+ * instead (see spiclient.c), and none of this is built. */
 
 #define DMA_CHANNEL_OFFSET 0x100
 #define DMA_REG_CS         0x00
@@ -352,6 +363,13 @@ _kernel_oserror *lcddisplay_dma_prepare(void)
     dma_reset_channel(DMA_RX_CHANNEL);
     return NULL;
 }
+#else
+_kernel_oserror *lcddisplay_dma_prepare(void)
+{
+    /* SPIDriver does any DMA that is needed */
+    return NULL;
+}
+#endif
 
 /* Initialisation table. Each entry is a command byte followed by
  * the number ofparameters and the parameter values. These are stored as
@@ -386,6 +404,19 @@ static const lcd_init_cmd_t lcd_init_table[] = {
 
 #define LCD_INIT_TABLE_LEN (sizeof(lcd_init_table) / sizeof(lcd_init_table[0]))
 
+#ifdef ROOL_SPIDRIVER
+/* The first error from a command or the reset since it was last taken by lcd_setup: neither
+ * lcd_command nor lcd_reset can return one. */
+static _kernel_oserror *lcd_command_error;
+
+void lcd_command(int cmd, const int *start, const int *end)
+{
+    _kernel_oserror *e = spiclient_command(cmd, start, end);
+
+    if (e != NULL && lcd_command_error == NULL)
+        lcd_command_error = e;
+}
+#else
 void lcd_command(int cmd, const int *start, const int *end)
 {
     unsigned int timeout;
@@ -441,6 +472,44 @@ void lcd_command(int cmd, const int *start, const int *end)
   // spi_send(cmd, start, end, &ws->hw);
 }
 
+#endif
+
+#ifdef ROOL_SPIDRIVER
+/* The reset line of the panel is a GPIO pin, used through the GPIO module (SWI chunk &58F80,
+ * which is not in swis.h): WriteData is R0 = pin and R1 = level, WriteOE is R0 = pin and
+ * R1 = 0 for an output. The chip select is the channel's, and is the driver's business. */
+#define GPIO_WriteData  0x58F81
+#define GPIO_WriteOE    0x58F83
+
+static int reset_pin = PIN_RST;
+
+_kernel_oserror *lcd_set_reset_pin(int pin)
+{
+    _kernel_oserror *e = _swix(GPIO_WriteOE, _INR(0,1), pin, 0);
+
+    if (e == NULL)
+        reset_pin = pin;
+    return e;
+}
+
+static void reset_level(int level)
+{
+    _kernel_oserror *e = _swix(GPIO_WriteData, _INR(0,1), reset_pin, level);
+
+    if (e != NULL && lcd_command_error == NULL)
+        lcd_command_error = e;
+}
+
+void lcd_reset(void)
+{
+    reset_level(1);
+    sleep(1);                       /* 0.010s */
+    reset_level(0);
+    sleep(2);                       /* 0.020s */
+    reset_level(1);
+    sleep(15);                      /* 0.150s */
+}
+#else
 void lcd_reset(void)
 {
     gpio_base[GPIO_GPSET0_REG/4] = (1 << PIN_CS);
@@ -453,6 +522,8 @@ void lcd_reset(void)
     barrier_W(); sleep(15);         /* 0.150s */
     gpio_base[GPIO_GPCLR0_REG/4] = (1 << PIN_CS);
 }
+
+#endif
 
 _kernel_oserror *lcd_setup(void)
 {
@@ -467,7 +538,16 @@ _kernel_oserror *lcd_setup(void)
 
     lcd_command(0x29, 0, 0); // DISPON
 
+#ifdef ROOL_SPIDRIVER
+    {
+        _kernel_oserror *e = lcd_command_error;
+
+        lcd_command_error = NULL;
+        return e;
+    }
+#else
     return NULL;
+#endif
 }
 
 /* The current backlight brightness (duty cycle 0-100), as last set via
@@ -483,7 +563,9 @@ _kernel_oserror *lcd_set_backlight(int brightness)
         brightness = 100;
 
     current_brightness = brightness;
+#ifndef LCDDISPLAY_NO_PWM
     pwm_base[PWM_DAT1_REG / 4] = brightness;
+#endif
 
     return NULL;
 }
@@ -496,17 +578,58 @@ int lcd_get_backlight(void)
 _kernel_oserror *lcd_backlight_start(void)
 {
     /* Start the PWM. */
+#ifndef LCDDISPLAY_NO_PWM
     pwm_base[PWM_CTL_REG / 4] |= PWM_CTL_PWEN1;
+#endif
     return NULL;
 }
 
 _kernel_oserror *lcd_backlight_stop(void)
 {
     /* Stop the PWM entirely. */
+#ifndef LCDDISPLAY_NO_PWM
     pwm_base[PWM_CTL_REG / 4] |= ~PWM_CTL_PWEN1;
+#endif
     return NULL;
 }
 
+#ifdef ROOL_SPIDRIVER
+/* The command which starts a write to the panel's memory, and then the frame in the order the
+ * panel wants it: 16 bits a pixel, high byte first (the sprite has them the other way round). */
+#define CMD_RAMWR  0x2C
+
+static _kernel_oserror lcd_memory_error = { 0x82ec01, "Not enough memory for a frame" };
+
+_kernel_oserror *lcd_show_sprite(void *sprite_ptr)
+{
+    _kernel_oserror *e;
+    uint8_t *frame;
+    const uint32_t pixels = SCREEN_WIDTH * SCREEN_HEIGHT;
+    const uint32_t length = 1 + pixels * SCREEN_DEPTH;
+    uint32_t i;
+
+    frame = malloc(length);
+    if (frame == NULL)
+        return &lcd_memory_error;
+
+    frame[0] = CMD_RAMWR;
+    if (sprite_ptr) {
+        const uint16_t *s = (const uint16_t *) sprite_ptr + 22; // 44 bytes of header
+        for (i = 0; i < pixels; i++) {
+            frame[1 + i * 2] = (uint8_t) (s[i] >> 8);
+            frame[2 + i * 2] = (uint8_t) (s[i] & 0xFF);
+        }
+    }
+    else {
+        // No sprite passed, so set to zero (black)
+        memset(frame + 1, 0, pixels * SCREEN_DEPTH);
+    }
+
+    e = spiclient_send(frame, length);
+    free(frame);
+    return e;
+}
+#else
 _kernel_oserror *lcd_show_sprite(void *sprite_ptr)
 {
     _kernel_oserror *e;
@@ -539,3 +662,4 @@ _kernel_oserror *lcd_show_sprite(void *sprite_ptr)
 
     return e ? e : e2;
 }
+#endif

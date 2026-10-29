@@ -1,0 +1,48 @@
+#!/bin/bash
+##
+# Run the module, built to use SPIDriver, in Pyromaniac against an emulated panel.
+#
+# Usage: run-pyromaniac [--devices <spidriveremulator.devices>] [--compare sprite|black]
+#                       [--command <command>]...
+#
+# The module is loaded (with the SPIDriver, SPIDriverEmulator and GPIO modules that Pyromaniac
+# provides), the commands are run, and then, with --compare, the picture of the panel is written
+# and checked. Pyromaniac is the checkout named by $PYROMANIAC (default ../../Pyromaniac), which
+# must have SPIDriverEmulator (branch spidriver-experiment).
+
+here="$(cd "$(dirname "$0")" && pwd)"
+pyro="${PYROMANIAC:-$here/../../Pyromaniac}"
+module="$here/../rm32/LCDDisplay,ffa"
+devices='st7789:rotate=90,ips=1'
+compare=
+commands=()
+
+while [ $# -gt 0 ] ; do
+    case "$1" in
+        --devices) devices="$2" ; shift 2 ;;
+        --compare) compare="$2" ; shift 2 ;;
+        --command) commands+=(--command "$2") ; shift 2 ;;
+        *) echo "Unknown option $1" >&2 ; exit 2 ;;
+    esac
+done
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+python3 "$here/panel.py" sprite "$work/testpanel,ff9"
+if [ -n "$compare" ] ; then
+    commands+=(--command "SPIEmulatorSnapshot 0 snapshot")
+fi
+
+cd "$work"
+python3 "$pyro/pyro.py" --config memorymap.zeropage_enable=yes \
+        --load-internal-modules --load-module "$ROSYSMODULES/SCL,ffa" \
+        --config "spidriveremulator.devices=$devices" \
+        --load-module "$module" "${commands[@]}"
+status=$?
+
+if [ -n "$compare" ] && [ $status -eq 0 ] ; then
+    python3 "$here/panel.py" compare "$compare" "$work/snapshot"
+    status=$?
+fi
+exit $status

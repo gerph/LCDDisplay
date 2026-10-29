@@ -1,0 +1,19 @@
+#!/bin/bash
+##
+# Build the module to use SPIDriver (without the backlight PWM, which Pyromaniac does not have)
+# and run the suite against RISC OS Pyromaniac's emulated panel.
+#
+# Pyromaniac is the checkout named by $PYROMANIAC (default ../../Pyromaniac), on the branch
+# spidriver-experiment. This replaces the build in rm32 and oz32 with the SPIDriver one: run
+# 'riscos-amu clean' and 'riscos-amu' afterwards for the original build.
+
+set -e
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+cd "$here/.."
+riscos-amu clean > /dev/null
+riscos-amu "CDEFINES=-DROOL_SPIDRIVER -DLCDDISPLAY_NO_PWM"
+
+cd "$here"
+TZ=UTC riscos-tooltester -show-command -script tests-spidriver.txt ./run-pyromaniac .

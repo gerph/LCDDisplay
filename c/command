@@ -16,6 +16,9 @@
 #include "lcddisplay.h"
 #include "lcd.h"
 #include "fade.h"
+#ifdef ROOL_SPIDRIVER
+#include "spiclient.h"
+#endif
 #include "modhead.h"
 
 /* OS_SpriteOp reason codes used here (see PRM 5a-90ff):
@@ -174,6 +177,58 @@ static _kernel_oserror *lcddisplay_fade(const char *arg_string, void *pw)
     return lcd_fade_start(brightness, pw);
 }
 
+#ifdef ROOL_SPIDRIVER
+/* The panel's channel, or its reset pin, are chosen by the user: the module has no way to
+ * find out where it is wired. */
+static _kernel_oserror *lcddisplay_channel(const char *arg_string)
+{
+    char name[64];
+    size_t length = 0;
+    char terminator = ' ';
+
+    /* A name may have spaces in it (the channels of SPIDriverEmulator are "st7789 0"), in which
+     * case it is given in double quotes. */
+    if (*arg_string == '"')
+    {
+        terminator = '"';
+        arg_string++;
+    }
+
+    while (arg_string[length] >= ' ' && arg_string[length] != terminator
+           && length < sizeof(name) - 1)
+    {
+        name[length] = arg_string[length];
+        length++;
+    }
+    name[length] = '\0';
+
+    return spiclient_open(name);
+}
+
+static _kernel_oserror *lcddisplay_reset_pin(const char *arg_string)
+{
+    char *endptr;
+    long pin = strtol(arg_string, &endptr, 10);
+
+    if (endptr == arg_string || pin < 0)
+        return lcddisplay_make_error("Syntax: *LCDDisplayReset <pin>");
+
+    return lcd_set_reset_pin((int) pin);
+}
+#else
+static _kernel_oserror *lcddisplay_channel(const char *arg_string)
+{
+    (void) arg_string;
+    return lcddisplay_make_error("The module is not built to use SPIDriver");
+}
+
+static _kernel_oserror *lcddisplay_reset_pin(const char *arg_string)
+{
+    (void) arg_string;
+    return lcddisplay_make_error("The module is not built to use SPIDriver");
+}
+#endif
+
 _kernel_oserror *lcddisplay_command(const char *arg_string, int argc, int cmd_no, void *pw)
 {
     switch (cmd_no) {
@@ -191,6 +246,12 @@ _kernel_oserror *lcddisplay_command(const char *arg_string, int argc, int cmd_no
 
     case CMD_LCDDisplayFade:
         return lcddisplay_fade(arg_string, pw);
+
+    case CMD_LCDDisplayChannel:
+        return lcddisplay_channel(arg_string);
+
+    case CMD_LCDDisplayReset:
+        return lcddisplay_reset_pin(arg_string);
 
     default:
         return lcddisplay_make_error("Unknown LCDDisplay command");

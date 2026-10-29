@@ -24,6 +24,10 @@ INCLUDES   =
 LIBS       =
 
 # Space separated list of defines to set, eg -DDEBUG
+#   -DROOL_SPIDRIVER      use SPIDriver for the panel's SPI channel, with the reset through
+#                         the GPIO module, instead of the controller's registers and DMA
+#   -DLCDDISPLAY_NO_PWM   do not control the backlight (it keeps its brightness setting only)
+#   -DROOL_SOURCE         build in the ROOL source tree, which provides Global/OSMisc.h
 CDEFINES   =
 
 # Objects to build, using the format o.<name> (will be varied for build type)
@@ -31,7 +35,8 @@ OBJS       = o.modhead \
              o.module \
              o.lcd \
              o.command \
-             o.fade
+             o.fade \
+             o.spiclient
 
 # By default we don't build Fortify in.
 FORTIFY    = no
@@ -43,6 +48,7 @@ $(OZDIR).module: h.modhead
 $(OZDIR).lcd: h.modhead
 $(OZDIR).command: h.modhead
 $(OZDIR).fade: h.modhead
+$(OZDIR).spiclient: h.spiclient
 
 cleantarget:
            ${DESTROY} h.modhead

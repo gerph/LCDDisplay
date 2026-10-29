@@ -25,6 +25,9 @@ void lcd_reset(void);
  * display on - port of PROClcdSetup/PROClcdSendInitData. */
 _kernel_oserror *lcd_setup(void);
 
+/* Under ROOL_SPIDRIVER: set the GPIO pin which resets the panel, and make it an output. */
+_kernel_oserror *lcd_set_reset_pin(int pin);
+
 /* Set the panel backlight brightness in percent (0-100). */
 _kernel_oserror *lcd_set_backlight(int brightness);
 

@@ -1,0 +1,65 @@
+/*******************************************************************
+ * File:        spiclient
+ * Purpose:     Use of the panel's SPI channel through SPIDriver
+ * Author:      Charles Ferguson (Gerph)
+ * Licence:     MIT
+ *
+ * Only used when the module is built with ROOL_SPIDRIVER. The module
+ * then does not map the SPI controller or use DMA: it asks SPIDriver
+ * for the channel that the panel is on, configures it, and sends the
+ * commands and the frame with SPID_Exchange. The command/data line of
+ * the panel is the channel's auxiliary line, which the driver drives.
+ ******************************************************************/
+
+#ifndef LCDDISPLAY_SPICLIENT_H
+#define LCDDISPLAY_SPICLIENT_H
+
+#include <stdint.h>
+#include "kernel.h"
+
+/*******************************************************************
+ Function:      spiclient_open
+ Description:   Find the channel of the panel and configure it: SPI
+                mode 3, 8 bit words, and the auxiliary line low for
+                the command byte and high for the data.
+ Parameters:    name = the name of the channel (as SPID_Enumerate
+                       gives it), or NULL or "" for the first channel
+ Returns:       pointer to error block, or NULL if the channel is
+                found and configured
+ ******************************************************************/
+_kernel_oserror *spiclient_open(const char *name);
+
+/*******************************************************************
+ Function:      spiclient_name
+ Description:   The name of the channel in use
+ Parameters:    none
+ Returns:       pointer to the name, or "" if there is no channel
+ ******************************************************************/
+const char *spiclient_name(void);
+
+/*******************************************************************
+ Function:      spiclient_command
+ Description:   Send one command byte, with the auxiliary line at the
+                command level, followed by its parameters with the
+                line at the data level
+ Parameters:    cmd = the command byte
+                start = the first parameter (one in each int)
+                end = just past the last parameter (start == end for
+                      a command with no parameters)
+ Returns:       pointer to error block, or NULL
+ ******************************************************************/
+_kernel_oserror *spiclient_command(int cmd, const int *start, const int *end);
+
+/*******************************************************************
+ Function:      spiclient_send
+ Description:   Send a command byte and then data in one exchange. The
+                first byte of the buffer is the command and the rest is
+                the data (so the caller leaves room for the command at
+                the start of its buffer)
+ Parameters:    buffer = the command byte and the data
+                length = the length of the buffer in bytes
+ Returns:       pointer to error block, or NULL
+ ******************************************************************/
+_kernel_oserror *spiclient_send(const uint8_t *buffer, uint32_t length);
+
+#endif /* LCDDISPLAY_SPICLIENT_H */

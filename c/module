@@ -25,9 +25,18 @@
 #define ARMop_DMB_Read      20
 #endif
 
+/* The registers are mapped unless the module uses SPIDriver and has no backlight PWM */
+#if !defined(ROOL_SPIDRIVER) || !defined(LCDDISPLAY_NO_PWM)
+#define LCD_REGISTERS
+#endif
+
 #include "SPIDefs.h"
 #include "lcddisplay.h"
 #include "lcd.h"
+#ifdef ROOL_SPIDRIVER
+#include <stdlib.h>
+#include "spiclient.h"
+#endif
 #include "fade.h"
 
 #include "modhead.h"
@@ -41,6 +50,7 @@ volatile unsigned *dma_base;
 volatile unsigned *pwm_base;
 volatile unsigned *clk_base;
 
+#ifdef LCD_REGISTERS
 /* Map in the GPIO, SPI0, DMA, PWM, and Clock Manager peripheral registers */
 static _kernel_oserror *map_registers(void)
 {
@@ -90,6 +100,9 @@ static _kernel_oserror *map_registers(void)
     return NULL;
 }
 
+#endif
+
+#ifndef ROOL_SPIDRIVER
 _kernel_oserror *hw_init(void)
 {
     int output_pins[2];
@@ -139,6 +152,55 @@ _kernel_oserror *hw_init(void)
     // Leave the PWM off.
     return 0;
 }
+#endif
+
+#ifdef ROOL_SPIDRIVER
+#ifndef LCDDISPLAY_NO_PWM
+/* The backlight, when it is controlled through the registers (it is the only hardware that the
+ * module touches directly with ROOL_SPIDRIVER): pin 18 to the PWM, and the PWM and its clock. */
+static _kernel_oserror *pwm_init(void)
+{
+    gpio_base[GPIO_GPFSEL1_REG/4] =
+        (gpio_base[GPIO_GPFSEL1_REG/4] & ~(7 << 24)) | (2 << 24);
+
+    pwm_base[PWM_CTL_REG/4] = 0;
+    clk_base[CM_PWMCTL_REG/4] = CM_PASSWD | CM_SRC_OSC;
+    sleep(1);
+
+    clk_base[CM_PWMDIV_REG/4] = CM_PASSWD | (32 << 12);
+    clk_base[CM_PWMCTL_REG/4] = CM_PASSWD | CM_SRC_OSC | CM_ENAB;
+    sleep(1);
+
+    pwm_base[PWM_RNG1_REG/4] = 100;
+    pwm_base[PWM_DAT1_REG/4] = 0;
+    return NULL;
+}
+#endif
+
+/* Find the panel's SPI channel, and the reset pin if the system variable gives it. The
+ * variables are LCDDisplay$Channel (the name of the channel; the first channel if not set)
+ * and LCDDisplay$ResetPin (a GPIO pin number); *LCDDisplayChannel and *LCDDisplayReset
+ * change them later. */
+static _kernel_oserror *spidriver_start(void)
+{
+    _kernel_oserror *e;
+    const char *pin = getenv("LCDDisplay$ResetPin");
+
+    if (pin != NULL && pin[0] != '\0')
+    {
+        e = lcd_set_reset_pin(atoi(pin));
+        if (e != NULL)
+            return e;
+    }
+    else
+    {
+        e = lcd_set_reset_pin(PIN_RST);
+        if (e != NULL)
+            return e;
+    }
+    return spiclient_open(getenv("LCDDisplay$Channel"));
+}
+#endif
 
 _kernel_oserror *module_init(const char *cmd_tail, int podule_base, void *pw)
 {
@@ -148,6 +210,7 @@ _kernel_oserror *module_init(const char *cmd_tail, int podule_base, void *pw)
     (void) podule_base;
     (void) pw;
 
+#ifdef LCD_REGISTERS
     e = _swix(OS_MMUControl, _IN(0) | _OUT(0),
               MMUCReason_GetARMop + (ARMop_DMB_Write << 8), &barrier_W);
     if (e) return e;
@@ -159,10 +222,22 @@ _kernel_oserror *module_init(const char *cmd_tail, int podule_base, void *pw)
     e = map_registers();
     if (e != NULL)
         goto fail;
+#endif
 
+#ifdef ROOL_SPIDRIVER
+    e = spidriver_start();
+    if (e != NULL)
+        goto fail;
+#ifndef LCDDISPLAY_NO_PWM
+    e = pwm_init();
+    if (e != NULL)
+        goto fail;
+#endif
+#else
     e = hw_init();
     if (e != NULL)
         goto fail;
+#endif
 
     e = lcd_set_backlight(0);
     if (e != NULL)

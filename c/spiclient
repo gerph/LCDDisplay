@@ -1,0 +1,153 @@
+/* spiclient.c - the panel's SPI channel, used through SPIDriver (ROOL_SPIDRIVER builds).
+ *
+ * The SWIs and block layouts are those of SPIDriver (its interface is documented in the
+ * SPIDriver2 project, prminxml/spidriver.xml); only what this module uses is defined here.
+ */
+
+#include <string.h>
+
+#include "kernel.h"
+#include "swis.h"
+
+#include "spiclient.h"
+
+#define SPID_Enumerate  0x59890
+#define SPID_Configure  0x59892
+#define SPID_Exchange   0x59893
+
+/* SPID_Configure reason 1: set the configuration from a block (36 bytes) */
+#define Configure_SetBlock      1
+#define CONFIGURATION_SIZE      36
+
+/* SPI mode word: bit 0 is the clock phase and bit 1 the polarity. The panel is mode 3. */
+#define MODE_PHASE      (1u << 0)
+#define MODE_POLARITY   (1u << 1)
+
+/* The auxiliary line, used as the command/data line of the panel: enabled, low for the
+ * command and high for the data. */
+#define AUX_ENABLE          (1u << 0)
+#define AUX_DATA_HIGH       (1u << 1)
+
+/* SPID_Exchange flags */
+#define Exchange_Command    (1u << 1)
+
+/* The clock asked for: the driver sets the nearest rate it can, which is not above it */
+#define SPI_CLOCK           32000000
+
+/* The most parameters of one command */
+#define MAX_PARAMETERS      32
+
+#define NAME_MAX_LEN        64
+
+static _kernel_oserror spiclient_error;
+
+static uint32_t channel_id;
+static int channel_found;
+static char channel_name[NAME_MAX_LEN];
+
+static _kernel_oserror *spiclient_make_error(const char *text)
+{
+    spiclient_error.errnum = 0x82ec02;
+    strncpy(spiclient_error.errmess, text, sizeof(spiclient_error.errmess) - 1);
+    spiclient_error.errmess[sizeof(spiclient_error.errmess) - 1] = '\0';
+    return &spiclient_error;
+}
+
+/* Case insensitive comparison of channel names */
+static int names_match(const char *a, const char *b)
+{
+    while (*a && *b)
+    {
+        char ca = *a++;
+        char cb = *b++;
+        if (ca >= 'A' && ca <= 'Z')
+            ca += 'a' - 'A';
+        if (cb >= 'A' && cb <= 'Z')
+            cb += 'a' - 'A';
+        if (ca != cb)
+            return 0;
+    }
+    return *a == *b;
+}
+
+static _kernel_oserror *configure(void)
+{
+    uint32_t block[CONFIGURATION_SIZE / 4];
+
+    block[0] = CONFIGURATION_SIZE;
+    block[1] = 0;                               /* version */
+    block[2] = SPI_CLOCK;
+    block[3] = MODE_PHASE | MODE_POLARITY;
+    block[4] = 8;                               /* word size */
+    block[5] = 0;                               /* chip select delay: the driver's default */
+    block[6] = 0;                               /* fill byte */
+    block[7] = AUX_ENABLE;
+    block[8] = AUX_DATA_HIGH;                   /* low in the command phase, high in the data */
+
+    return _swix(SPID_Configure, _INR(0,2), Configure_SetBlock, channel_id, block);
+}
+
+_kernel_oserror *spiclient_open(const char *name)
+{
+    _kernel_oserror *e;
+    uint32_t context = 0;
+    int found = 0;
+
+    channel_found = 0;
+    channel_name[0] = '\0';
+
+    for (;;)
+    {
+        uint32_t id;
+        const char *channel;
+
+        e = _swix(SPID_Enumerate, _INR(0,1) | _OUT(1) | _OUT(2) | _OUT(5),
+                  0, context, &context, &id, &channel);
+        if (e)
+            return e;
+        if (context == 0xFFFFFFFF)
+            break;
+        if (name == NULL || name[0] == '\0' || names_match(name, channel))
+        {
+            channel_id = id;
+            strncpy(channel_name, channel, sizeof(channel_name) - 1);
+            channel_name[sizeof(channel_name) - 1] = '\0';
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found)
+        return spiclient_make_error("SPI channel for the panel not found");
+
+    channel_found = 1;
+    return configure();
+}
+
+const char *spiclient_name(void)
+{
+    return channel_name;
+}
+
+_kernel_oserror *spiclient_command(int cmd, const int *start, const int *end)
+{
+    uint8_t buffer[1 + MAX_PARAMETERS];
+    uint32_t length = 1;
+
+    buffer[0] = (uint8_t) cmd;
+    while (start != end && length < sizeof(buffer))
+        buffer[length++] = (uint8_t) *start++;
+
+    return spiclient_send(buffer, length);
+}
+
+_kernel_oserror *spiclient_send(const uint8_t *buffer, uint32_t length)
+{
+    if (!channel_found)
+        return spiclient_make_error("SPI channel for the panel is not open");
+
+    /* R0 flags, R1 channel, R2 data to write, R3 buffer for the data read (none),
+     * R4 length, R5 timeout (the driver's default), R6 length of the command phase */
+    return _swix(SPID_Exchange, _INR(0,6), Exchange_Command, channel_id, buffer, 0,
+                 length, 0, 1);
+}
