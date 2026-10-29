@@ -81,6 +81,13 @@ Presented as proposals and not challenged (so taken as decisions):
   output) and `GPIO_WriteMode`, which is enough for the reset line. `PWMDevices` is new and its
   use for the backlight is not decided (LQ5).
 
+- **LI5 (done). Which controller the panel is.** The module's header comments say ILI9341, but
+  the initialisation table in `c/lcd` uses the ST7789 register names (PORCH, GCTRL, VCOMS, LCMCTL,
+  VDVVRHEN, VRHS, VDVS, FRCTRL2, PWCTRL1, PGAMCTRL, NGAMCTRL). The generic commands (sleep out,
+  display on, the window, memory write, memory access control and pixel format) are common to
+  both. The emulated model is registered as `st7789` and `ili9341`. Not verified against the
+  hardware: the author should confirm which chip the panel has.
+
 ## Open Questions
 
 - **LQ6. What is the name of the define which disables the backlight PWM?** Proposal:
